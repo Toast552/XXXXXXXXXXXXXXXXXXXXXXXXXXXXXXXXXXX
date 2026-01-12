@@ -3,17 +3,16 @@
 This document will guide you through the process of using vLLM with TRL for faster generation in online methods like GRPO and Online DPO. We first summarize a tl;dr on how to use vLLM with TRL, and then we will go into the details of how it works under the hood.
 
 > [!WARNING]
-> TRL currently only supports vLLM version `0.10.2`. Please ensure you have this version installed to avoid compatibility issues.
+> TRL currently only supports vLLM versions `0.10.2`, `0.11.0`, `0.11.1`, `0.11.2` and `0.12.0`. Please ensure you have one of these versions installed to avoid compatibility issues.
 
 > [!TIP]
 > The following trainers currently support generation with vLLM:
-> 
+>
 > - [`GRPOTrainer`]
-> - [`OnlineDPOTrainer`]
-> - [`NashMDTrainer`]
-> - [`XPOTrainer`]
 > - [`RLOOTrainer`]
-
+> - [`experimental.nash_md.NashMDTrainer`]
+> - [`experimental.online_dpo.OnlineDPOTrainer`]
+> - [`experimental.xpo.XPOTrainer`]
 
 ## 🚀 How can I use vLLM with TRL to speed up training?
 
@@ -47,24 +46,14 @@ Sample of a simple `train.py` script:
 ```python
 from datasets import load_dataset
 from trl import GRPOTrainer, GRPOConfig
+from trl.rewards import accuracy_reward
 
-dataset = load_dataset("trl-lib/tldr", split="train")
-
-# Dummy reward function: count the number of unique characters in the completions
-def reward_num_unique_chars(completions, **kwargs):
-    return [len(set(c)) for c in completions]
-
-training_args = GRPOConfig(
-    output_dir="my_test",
-    use_vllm=True,
-    bf16=True,
-    gradient_checkpointing=True,
-)
+dataset = load_dataset("trl-lib/DeepMath-103K", split="train")
 
 trainer = GRPOTrainer(
     model="Qwen/Qwen2.5-7B",
-    args=training_args,
-    reward_funcs=reward_num_unique_chars,
+    args=GRPOConfig(use_vllm=True),
+    reward_funcs=accuracy_reward,
     train_dataset=dataset,
 )
 
@@ -76,25 +65,15 @@ trainer.train()
 
 ```python
 from datasets import load_dataset
-from trl import OnlineDPOTrainer, OnlineDPOConfig
+from trl.experimental.online_dpo import OnlineDPOConfig, OnlineDPOTrainer
+from trl.rewards import accuracy_reward
 
-dataset = load_dataset("trl-lib/tldr", split="train")
-
-# Dummy reward function: count the number of unique characters in the completions
-def reward_num_unique_chars(completions, **kwargs):
-    return [len(set(c)) for c in completions]
-
-training_args = OnlineDPOConfig(
-    output_dir="my_test",
-    use_vllm=True,
-    bf16=True,
-    gradient_checkpointing=True,
-)
+dataset = load_dataset("trl-lib/DeepMath-103K", split="train")
 
 trainer = OnlineDPOTrainer(
     model="Qwen/Qwen2.5-7B",
-    args=training_args,
-    reward_funcs=reward_num_unique_chars,
+    args=OnlineDPOConfig(use_vllm=True),
+    reward_funcs=accuracy_reward,
     train_dataset=dataset,
 )
 
@@ -106,25 +85,15 @@ trainer.train()
 
 ```python
 from datasets import load_dataset
-from trl import NashMDTrainer, NashMDConfig
+from trl.experimental.nash_md import NashMDConfig, NashMDTrainer
+from trl.rewards import accuracy_reward
 
-dataset = load_dataset("trl-lib/tldr", split="train")
-
-# Dummy reward function: count the number of unique characters in the completions
-def reward_num_unique_chars(completions, **kwargs):
-    return [len(set(c)) for c in completions]
-
-training_args = NashMDConfig(
-    output_dir="my_test",
-    use_vllm=True,
-    bf16=True,
-    gradient_checkpointing=True,
-)
+dataset = load_dataset("trl-lib/DeepMath-103K", split="train")
 
 trainer = NashMDTrainer(
     model="Qwen/Qwen2.5-7B",
-    args=training_args,
-    reward_funcs=reward_num_unique_chars,
+    args=NashMDConfig(use_vllm=True),
+    reward_funcs=accuracy_reward,
     train_dataset=dataset,
 )
 
@@ -137,24 +106,14 @@ trainer.train()
 ```python
 from datasets import load_dataset
 from trl import XPOTrainer, XPOConfig
+from trl.rewards import accuracy_reward
 
-dataset = load_dataset("trl-lib/tldr", split="train")
-
-# Dummy reward function: count the number of unique characters in the completions
-def reward_num_unique_chars(completions, **kwargs):
-    return [len(set(c)) for c in completions]
-
-training_args = XPOConfig(
-    output_dir="my_test",
-    use_vllm=True,
-    bf16=True,
-    gradient_checkpointing=True,
-)
+dataset = load_dataset("trl-lib/DeepMath-103K", split="train")
 
 trainer = XPOTrainer(
     model="Qwen/Qwen2.5-7B",
-    args=training_args,
-    reward_funcs=reward_num_unique_chars,
+    args=XPOConfig(use_vllm=True),
+    reward_funcs=accuracy_reward,
     train_dataset=dataset,
 )
 
@@ -167,24 +126,14 @@ trainer.train()
 ```python
 from datasets import load_dataset
 from trl import RLOOTrainer, RLOOConfig
+from trl.rewards import accuracy_reward
 
-dataset = load_dataset("trl-lib/tldr", split="train")
-
-# Dummy reward function: count the number of unique characters in the completions
-def reward_num_unique_chars(completions, **kwargs):
-    return [len(set(c)) for c in completions]
-
-training_args = RLOOConfig(
-    output_dir="my_test",
-    use_vllm=True,
-    bf16=True,
-    gradient_checkpointing=True,
-)
+dataset = load_dataset("trl-lib/DeepMath-103K", split="train")
 
 trainer = RLOOTrainer(
     model="Qwen/Qwen2.5-7B",
-    args=training_args,
-    reward_funcs=reward_num_unique_chars,
+    args=RLOOConfig(use_vllm=True),
+    reward_funcs=accuracy_reward,
     train_dataset=dataset,
 )
 
@@ -235,16 +184,16 @@ Separately, the number of completions to generate per prompt is controlled by th
 
 ### 🥸 More detail on what happens under the hood when running the server
 
-* The vLLM server starts by running the command: `trl vllm-serve --model Qwen/Qwen2.5-7B`.
-* Once the server is running, it generates completions based on requests from the client (trainer) using `vllm_client.generate` [here](https://github.com/huggingface/trl/blob/cc044e35b285be7dc062764b3364e1e684db4c7c/trl/trainer/grpo_trainer.py#L1025-L1035).
-* The client (trainer) then requests these completions from the server.
-* These completions are used to compute the reward signal.
-* Based on the reward signal and the model’s output, the loss is computed, and the backward pass is performed to update the model’s weights.
-* **Note**: The server only handles completion generation — it doesn’t train the model. Therefore, the model’s weights aren’t updated on the server. Once the backward pass is complete, the client sends the updated weights to the server using `vllm_client.update_named_param(name, param.data)`.
+- The vLLM server starts by running the command: `trl vllm-serve --model Qwen/Qwen2.5-7B`.
+- Once the server is running, it generates completions based on requests from the client (trainer) using `vllm_client.generate` [these lines](https://github.com/huggingface/trl/blob/cc044e35b285be7dc062764b3364e1e684db4c7c/trl/trainer/grpo_trainer.py#L1025-L1035).
+- The client (trainer) then requests these completions from the server.
+- These completions are used to compute the reward signal.
+- Based on the reward signal and the model’s output, the loss is computed, and the backward pass is performed to update the model’s weights.
+- **Note**: The server only handles completion generation — it doesn’t train the model. Therefore, the model’s weights aren’t updated on the server. Once the backward pass is complete, the client sends the updated weights to the server using `vllm_client.update_named_param(name, param.data)`.
 
 When using vLLM, ensure the GPUs assigned for training and generation are separate to avoid NCCL communication conflicts. If you do not set the `CUDA_VISIBLE_DEVICES` environment variable, the training script will use all available GPUs by default, which may lead to device conflicts. Starting from TRL next release after v0.19.1, the code automatically detects and prevents same-device usage, raising a error at the vllm server process:
 
-```
+```log
 RuntimeError: Attempting to use the same CUDA device for multiple distinct roles/ranks within the same communicator. 
 Ensure that trainer is using different devices than vLLM server.
 ```
@@ -307,23 +256,23 @@ options:
 
 ### 💆🏻‍♀️ What's the best distributed setup?
 
-![](https://huggingface.co/datasets/trl-lib/documentation-images/resolve/main/tp_dp_throughput_8_gpus.png)
-![](https://huggingface.co/datasets/trl-lib/documentation-images/resolve/main/tp_dp_throughput_4_gpus.png)
+![tp dp throughput 8 gpus](https://huggingface.co/datasets/trl-lib/documentation-images/resolve/main/tp_dp_throughput_8_gpus.png)
+![tp dp throughput 4 gpus](https://huggingface.co/datasets/trl-lib/documentation-images/resolve/main/tp_dp_throughput_4_gpus.png)
 
 First and foremost, always remember that the optimal setup depends on:
 
-* The model size
-* The number of GPUs you have
-* The GPU memory size
-* The batch size you are using
-* The number of requests you are sending to the server (prompts)
-* The `max_model_len` you are using (this is the max length of the input sequence that the model can process, a.k.a. the context window size)
-* The number of completions you are generating for each request (`num_generations`)
+- The model size
+- The number of GPUs you have
+- The GPU memory size
+- The batch size you are using
+- The number of requests you are sending to the server (prompts)
+- The `max_model_len` you are using (this is the max length of the input sequence that the model can process, a.k.a. the context window size)
+- The number of completions you are generating for each request (`num_generations`)
 
 Given these factors, our experiments on the Qwen model family (3B, 7B, 14B, 32B) using 8 H100 GPUs show that:
 
-* For reasonable-sized models (3B–14B) and a moderate context window (`max_len < 8k`), using full capacity for data parallelism gives better throughput. The setup `(tp=1, dp=8)` yields the best results.
-* For larger models (32B) and longer context windows (`max_len > 8k`), a smaller DP size combined with some model-side parallelism performs better. For example, `(tp=2, dp=4)` is a good setup for 32B models with a larger context window.
+- For reasonable-sized models (3B–14B) and a moderate context window (`max_len < 8k`), using full capacity for data parallelism gives better throughput. The setup `(tp=1, dp=8)` yields the best results.
+- For larger models (32B) and longer context windows (`max_len > 8k`), a smaller DP size combined with some model-side parallelism performs better. For example, `(tp=2, dp=4)` is a good setup for 32B models with a larger context window.
 
 ### vLLM with Transformers Backend
 
@@ -334,7 +283,7 @@ For more details, check out [vLLM Transformers Backend](https://blog.vllm.ai/202
 
 Example:
 
-```
+```sh
 CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES=0 trl vllm-serve --model Qwen/Qwen
 2.5-VL-3B-Instruct --tensor-parallel-size 1 --port 8000 --enforce_eager --vllm_model_impl transformers
 ```
@@ -367,7 +316,7 @@ training_args = GRPOConfig(
 <hfoption id="OnlineDPO">
 
 ```python
-from trl import OnlineDPOConfig
+from trl.experimental.online_dpo import OnlineDPOConfig
 
 training_args = OnlineDPOConfig(
     ...,
@@ -380,7 +329,7 @@ training_args = OnlineDPOConfig(
 <hfoption id="NashMD">
 
 ```python
-from trl import NashMDConfig
+from trl.experimental.nash_md import NashMDConfig
 
 training_args = NashMDConfig(
     ...,
@@ -393,7 +342,7 @@ training_args = NashMDConfig(
 <hfoption id="XPO">
 
 ```python
-from trl import XPOConfig
+from trl.experimental.xpo import XPOConfig
 
 training_args = XPOConfig(
     ...,
@@ -442,7 +391,7 @@ training_args = GRPOConfig(
 <hfoption id="OnlineDPO">
 
 ```python
-from trl import OnlineDPOConfig
+from trl.experimental.online_dpo import OnlineDPOConfig
 
 training_args = OnlineDPOConfig(
     ...,
@@ -455,7 +404,7 @@ training_args = OnlineDPOConfig(
 <hfoption id="NashMD">
 
 ```python
-from trl import NashMDConfig
+from trl.experimental.nash_md import NashMDConfig
 
 training_args = NashMDConfig(
     ...,
@@ -468,7 +417,7 @@ training_args = NashMDConfig(
 <hfoption id="XPO">
 
 ```python
-from trl import XPOConfig
+from trl.experimental.xpo import XPOConfig
 
 training_args = XPOConfig(
     ...,
@@ -496,7 +445,5 @@ training_args = RLOOConfig(
 > [!WARNING]
 > Check the documentation of the trainer you are using for specific details on vLLM usage and parameters.
 
-
 > [!WARNING]
 > To reduce GPU memory usage when running vLLM, consider [enabling vLLM sleep mode](reducing_memory_usage#vllm-sleep-mode).
-

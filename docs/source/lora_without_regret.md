@@ -22,14 +22,13 @@ Let's implement and train LoRA adapters in TRL scripts based on the core finding
 The blog post performs SFT on a range of models and datasets from the Hub, which we can reproduce in TRL.
 
 | Model | Dataset |
-|-------|---------|
+| --- | --- |
 | [Llama-3.2-1B-Instruct](https://huggingface.co/meta-llama/Llama-3.2-1B) | [allenai/tulu-3-sft-mixture](https://huggingface.co/datasets/allenai/tulu-3-sft-mixture) |
 | [Llama-3.2-1B-Instruct](https://huggingface.co/meta-llama/Llama-3.2-1B) | [open-thoughts/OpenThoughts-114k](https://huggingface.co/datasets/open-thoughts/OpenThoughts-114k) |
 | [Llama-3.1-8B-Instruct](https://huggingface.co/meta-llama/Llama-3.1-8B) | [allenai/tulu-3-sft-mixture](https://huggingface.co/datasets/allenai/tulu-3-sft-mixture) |
 | [Llama-3.1-8B-Instruct](https://huggingface.co/meta-llama/Llama-3.1-8B) | [open-thoughts/OpenThoughts-114k](https://huggingface.co/datasets/open-thoughts/OpenThoughts-114k) |
 
 <hfoptions id="sft">
-
 <hfoption id="python">
 
 We can integrate these findings with the TRL Python API like so:
@@ -64,7 +63,6 @@ trainer.train()
 ```
 
 </hfoption>
-
 <hfoption id="jobs">
 
 ```bash
@@ -127,106 +125,17 @@ Once training starts, you can monitor the progress in [Trackio](https://huggingf
 
 ### Reinforcement Learning (GRPO)
 
-The blog post performs GRPO on a range of models and datasets from the Hub, and once again we can reproduce the results in TRL. 
+The blog post performs GRPO on a range of models and datasets from the Hub, and once again we can reproduce the results in TRL.
 
 | Model | Dataset |
-|-------|---------|
+| --- | --- |
 | [Llama-3.1-8B-Base](https://huggingface.co/meta-llama/Llama-3.2-1B) | [GSM8k](https://huggingface.co/datasets/openai/gsm8k) |
 | [Llama-3.1-8B-Base](https://huggingface.co/meta-llama/Llama-3.2-1B) | [DeepMath-103K](https://huggingface.co/datasets/zwhe99/DeepMath-103K) |
 | [Qwen3-8b-base](https://huggingface.co/Qwen/Qwen3-8b-base) | [DeepMath-103K](https://huggingface.co/datasets/zwhe99/DeepMath-103K) |
 
 For reinforcement learning, the blog uses a math reasoning task that we can reproduce as a Python function.
 
-<details>
-<summary>Reward function</summary>
-
-```python
-def strip_reasoning_accuracy_reward(
-    completions: list[list[dict[str, str]]], solution: list[str], **kwargs
-) -> list[Optional[float]]:
-    """Reward function that strips reasoning tags and checks mathematical accuracy.
-
-    This function:
-    1. Extracts the content from completions
-    2. Removes <think></think> tags (for reasoning that shouldn't be evaluated)
-    3. Parses both the gold solution and the predicted answer
-    4. Uses math_verify to check if they are mathematically equivalent
-
-    Args:
-        completions: List of model completions, each containing a list of messages
-        solution: List of ground truth solutions
-        **kwargs: Additional arguments (ignored but required for trainer compatibility)
-
-    Returns:
-        List of rewards where:
-        - 1.0 if the answer is correct
-        - 0.0 if the answer is incorrect
-        - None if the solution is not parseable (skips this example)
-    """
-    contents = [completion[0]["content"] for completion in completions]
-    rewards = []
-
-    for content, sol in zip(contents, solution):
-        # Strip reasoning tags from completion
-        while "<think>" in content and "</think>" in content:
-            start = content.find("<think>")
-            end = content.find("</think>", start)
-            if start != -1 and end != -1:
-                content = content[:start] + content[end + len("</think>") :]
-            else:
-                break
-
-        # Parse gold solution
-        gold_parsed = parse(
-            f"${sol}$",
-            extraction_config=[
-                LatexExtractionConfig(
-                    boxed_match_priority=0, try_extract_without_anchor=True
-                )
-            ],
-        )
-
-        if len(gold_parsed) != 0:
-            # We require the answer to be provided in correct latex (no malformed operators)
-            answer_parsed = parse(
-                content,
-                extraction_config=[
-                    LatexExtractionConfig(
-                        boxed_match_priority=0,
-                        normalization_config=NormalizationConfig(
-                            basic_latex=True,
-                            units=True,
-                            malformed_operators=False,
-                            nits=False,
-                            boxed=True,
-                        ),
-                        try_extract_without_anchor=False,
-                    )
-                ],
-                extraction_mode="first_match",
-            )
-
-            # Compute binary rewards if verifiable, `None` otherwise to skip this example
-            try:
-                reward = float(verify(gold_parsed, answer_parsed))
-            except Exception as e:
-                print(
-                    f"verify failed: {e}, answer: {answer_parsed}, gold: {gold_parsed}"
-                )
-                reward = None
-        else:
-            # If the gold solution is not parseable, we assign `None` to skip this example
-            reward = None
-
-        rewards.append(reward)
-
-    return rewards
-```
-
-</details>
-
 <hfoptions id="grpo">
-
 <hfoption id="python">
 
 We can implement these recommendations with the TRL Python API like so:
@@ -236,13 +145,9 @@ We can implement these recommendations with the TRL Python API like so:
 from datasets import load_dataset
 from peft import LoraConfig
 from trl import GRPOConfig, GRPOTrainer
+from trl.rewards import reasoning_accuracy_reward
 
 dataset = load_dataset("HuggingFaceH4/OpenR1-Math-220k-default-verified", split="train")
-
-def strip_reasoning_accuracy_reward(completions, **kwargs):
-    """Reward function that strips reasoning and accuracy scores from the model outputs."""
-
-    ... 
 
 peft_config = LoraConfig(
     r=1,
@@ -262,7 +167,7 @@ training_args = GRPOConfig(
 
 trainer = GRPOTrainer(
     model="Qwen/Qwen3-0.6B",
-    reward_funcs=strip_reasoning_accuracy_reward,
+    reward_funcs=reasoning_accuracy_reward,
     args=training_args,
     train_dataset=dataset,
     peft_config=peft_config,
@@ -276,7 +181,6 @@ trainer.train()
 > This snippet skips the reward function which is defined above to keep the example concise.
 
 </hfoption>
-
 <hfoption id="jobs">
 
 ```bash
@@ -295,7 +199,6 @@ hf jobs uv run \
     --warmup_ratio 0.0 \
     --max_grad_norm 1.0 \
     --beta 0.0 \
-    --max_prompt_length 1024 \
     --max_completion_length 4096 \
     --num_generations 16 \
     --generation_batch_size 16 \
@@ -321,7 +224,6 @@ To use Hugging Face Jobs, you will need to be logged in to the Hugging Face Hub 
 <hfoption id="local">
 
 ```bash
-
 uv run "https://huggingface.co/datasets/burtenshaw/lora-without-regrets/resolve/main/grpo.py" \
     --model_name_or_path Qwen/Qwen3-0.6B \
     --dataset_name HuggingFaceH4/OpenR1-Math-220k-default-verified \
@@ -331,7 +233,6 @@ uv run "https://huggingface.co/datasets/burtenshaw/lora-without-regrets/resolve/
     --warmup_ratio 0.0 \
     --max_grad_norm 1.0 \
     --beta 0.0 \
-    --max_prompt_length 1024 \
     --max_completion_length 4096 \
     --num_generations 16 \
     --generation_batch_size 16 \
@@ -372,23 +273,23 @@ And most importantly, the LoRA model uses significantly less memory than the ful
 
 Here are the parameters we used to train the above models
 
-| Parameter                       | LoRA                                               | Full FT                        |
-|----------------------------------|----------------------------------------------------|-------------------------------|
-| `--model_name_or_path`           | HuggingFaceTB/SmolLM3-3B                           | HuggingFaceTB/SmolLM3-3B      |
-| `--dataset_name`                 | HuggingFaceH4/OpenR1-Math-220k-default-verified    | HuggingFaceH4/OpenR1-Math-220k-default-verified |
-| `--learning_rate`                | 1.0e-5                                             | 1.0e-6                        |
-| `--max_prompt_length`            | 1024                                               | 1024                          |
-| `--max_completion_length`        | 4096                                               | 4096                          |
-| `--lora_r`                       | 1                                                  | -                           |
-| `--lora_alpha`                   | 32                                                 | -                           |
-| `--lora_dropout`                 | 0.0                                                | -                           |
-| `--lora_target_modules`          | all-linear                                         | -                           |
+| Parameter | LoRA | Full FT |
+| --- | --- | --- |
+| `--model_name_or_path` | HuggingFaceTB/SmolLM3-3B | HuggingFaceTB/SmolLM3-3B |
+| `--dataset_name` | HuggingFaceH4/OpenR1-Math-220k-default-verified | HuggingFaceH4/OpenR1-Math-220k-default-verified |
+| `--learning_rate` | 1.0e-5 | 1.0e-6 |
+| `--max_prompt_length` | 1024 | 1024 |
+| `--max_completion_length` | 4096 | 4096 |
+| `--lora_r` | 1 | - |
+| `--lora_alpha` | 32 | - |
+| `--lora_dropout` | 0.0 | - |
+| `--lora_target_modules` | all-linear | - |
 
 Let's break down the key findings of the blog post and how we were able to reproduce them.
 
 ### 1. *LoRA performs better when applied to all weight matrices*
 
-The authors recommend applying LoRA to all weight matrices rather than limiting it to attention layers, as increasing the rank does not compensate for this restriction. 
+The authors recommend applying LoRA to all weight matrices rather than limiting it to attention layers, as increasing the rank does not compensate for this restriction.
 
 ![all layers](https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/lora_without_regret/1.png)
 
@@ -402,7 +303,7 @@ peft_config = LoraConfig(target_modules="all-linear")
 
 ### 2. *The adapter needs sufficient capacity to learn from the dataset*
 
-The blog post recommends using a sufficient LoRA rank to learn from the dataset. The rank determines the number of trainable parameters in the LoRA adapter. Therefore, "For datasets that exceed LoRA capacity, LoRA underperforms FullFT". 
+The blog post recommends using a sufficient LoRA rank to learn from the dataset. The rank determines the number of trainable parameters in the LoRA adapter. Therefore, "For datasets that exceed LoRA capacity, LoRA underperforms FullFT".
 
 ![learning rate](https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/lora_without_regret/3.png)
 
@@ -413,7 +314,7 @@ Reinforcement learning tasks typically require lower capacity, so smaller LoRA r
 The blog post defines the ideal dataset size for LoRA to match full fine-tuning as "Post-training scale". Which we can use to determine the recommended rank for SFT and RL LoRAs as:
 
 | Task Type | Dataset Size | Recommended Rank |
-|-----------|-------------|------------------|
+| --- | --- | --- |
 | **SFT** | Post-training scale | 256 |
 | **RL** | Any size | 1-32 |
 

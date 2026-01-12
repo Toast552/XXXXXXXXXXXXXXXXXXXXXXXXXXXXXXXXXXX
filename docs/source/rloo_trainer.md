@@ -1,6 +1,6 @@
 # RLOO Trainer
 
-[![](https://img.shields.io/badge/All_models-RLOO-blue)](https://huggingface.co/models?other=rloo,trl)
+[![model badge](https://img.shields.io/badge/All_models-RLOO-blue)](https://huggingface.co/models?other=rloo,trl)
 
 ## Overview
 
@@ -15,10 +15,10 @@ This post-training method was contributed by [Costa Huang](https://github.com/vw
 
 ## Quick start
 
-This example demonstrates how to train a model using the RLOO method. We train a [Qwen 0.5B Instruct model](https://huggingface.co/Qwen/Qwen2-0.5B-Instruct) with the prompts from the [UltraFeedback prompts dataset](https://huggingface.co/datasets/trl-lib/ultrafeedback-prompt). You can view the data in the dataset here:
+This example demonstrates how to train a model using the RLOO method. We train a [Qwen 0.5B Instruct model](https://huggingface.co/Qwen/Qwen2-0.5B-Instruct) with the prompts from the [DeepMath-103K dataset](https://huggingface.co/datasets/trl-lib/DeepMath-103K). You can view the data in the dataset here:
 
 <iframe
-  src="https://huggingface.co/datasets/trl-lib/ultrafeedback-prompt/embed/viewer/default/train?row=0"
+  src="https://huggingface.co/datasets/trl-lib/DeepMath-103K/embed/viewer/default/train?row=0"
   frameborder="0"
   width="100%"
   height="560px"
@@ -29,21 +29,14 @@ Below is the script to train the model.
 ```python
 # train_rloo.py
 from datasets import load_dataset
-from trl import RLOOConfig, RLOOTrainer
+from trl import RLOOTrainer
+from trl.rewards import accuracy_reward
 
-dataset = load_dataset("trl-lib/ultrafeedback-prompt", split="train")
+dataset = load_dataset("trl-lib/DeepMath-103K", split="train")
 
-# Dummy reward function for demonstration purposes
-def reward_num_unique_letters(completions, **kwargs):
-    """Reward function that rewards completions with more unique letters."""
-    completion_contents = [completion[0]["content"] for completion in completions]
-    return [float(len(set(content))) for content in completion_contents]
-
-training_args = RLOOConfig(output_dir="Qwen2-0.5B-RLOO")
 trainer = RLOOTrainer(
     model="Qwen/Qwen2-0.5B-Instruct",
-    reward_funcs=reward_num_unique_letters,
-    args=training_args,
+    reward_funcs=accuracy_reward,
     train_dataset=dataset,
 )
 trainer.train()
@@ -101,13 +94,12 @@ where  \\( \beta > 0 \\) controls the strength of the KL penalty.
 
 ### Computing the advantage
 
-Once the rewards for each completion have been computed, we calculate a baseline as the average reward of all other samples in the same batch, excluding the current sample. This baseline is used to reduce the variance of the policy gradient estimate. The advantage for each completion is then obtained as the difference between its own reward and this leave-one-out baseline. 
+Once the rewards for each completion have been computed, we calculate a baseline as the average reward of all other samples in the same batch, excluding the current sample. This baseline is used to reduce the variance of the policy gradient estimate. The advantage for each completion is then obtained as the difference between its own reward and this leave-one-out baseline.
 
 Formally, for a batch of G completions, the baseline for completion is:
 $$
 b_i = \frac{1}{G-1} \sum_{j \neq i} r_j
 $$
-
 
 and then the advantage for each completion is computed as the difference between its reward and the baseline:
 
@@ -136,6 +128,7 @@ In a fully online, single-step setting (default),  \\( \frac{\pi_\theta(o_i \mid
 While training and evaluating, we record the following reward metrics:
 
 - `num_tokens`: The total number of tokens processed so far, including both prompts and completions.
+- `step_time`: The average time (in seconds) taken per training step (including generation).
 - `completions/mean_length`: The average length of generated completions.
 - `completions/min_length`: The minimum length of generated completions.
 - `completions/max_length`: The maximum length of generated completions.
@@ -150,15 +143,10 @@ While training and evaluating, we record the following reward metrics:
 - `frac_reward_zero_std`: The fraction of samples in the generation batch with a reward std of zero, implying there is little diversity for that prompt (all answers are correct or incorrect).
 - `entropy`: Average entropy of token predictions across generated completions. (If `mask_truncated_completions=True`, masked sequences tokens are excluded.)
 - `kl`: The average KL divergence between the model and the reference model, calculated over generated completions. Logged only if `beta` is nonzero.
-- `clip_ratio/region_mean`: The ratio of sequence probabilities where the RLOO objective is clipped to stay within the trust region:
-$$
-\text{clip}\left( r_{i}(\theta), 1 - \epsilon_\mathrm{low}, 1 + \epsilon_\mathrm{high} \right)\,, \qquad r_{i}(\theta) = \frac{\pi_\theta(o_{i} \mid q)}{\pi_{\theta_{\text{old}}}(o_{i} \mid q)}\,.
-$$
-
-    A higher value means more samples are clipped, which constrains how much the policy $\pi_\theta$ can change.
-- `clip_ratio/low_mean`: The average ratio of sequence probabilities that were clipped on the lower bound of the trust region:  \\(r_{i,t}(\theta) < 1 - \epsilon_\mathrm{low}\\)
-- `clip_ratio/low_min`: The minimum ratio of sequence probabilities that were clipped on the lower bound of the trust region:  \\(r_{i,t}(\theta) < 1 - \epsilon_\mathrm{low}\\)
-- `clip_ratio/high_mean`: The average ratio of sequence probabilities that were clipped on the upper bound of the trust region:  \\(r_{i,t}(\theta) > 1 + \epsilon_\mathrm{high}\\)
+- `clip_ratio/region_mean`: The ratio of sequence probabilities where the RLOO objective is clipped to stay within the trust region:  \\( \text{clip}\left( r_{i}(\theta), 1 - \epsilon_\mathrm{low}, 1 + \epsilon_\mathrm{high} \right)\,, \quad r_{i}(\theta) = \frac{\pi_\theta(o_{i} \mid q)}{\pi_{\theta_{\text{old}}}(o_{i} \mid q)} \\). A higher value means more samples are clipped, which constrains how much the policy $\pi_\theta$ can change.
+- `clip_ratio/low_mean`: The average ratio of sequence probabilities that were clipped on the lower bound of the trust region:  \\(r_{i,t}(\theta) < 1 - \epsilon_\mathrm{low}\\).
+- `clip_ratio/low_min`: The minimum ratio of sequence probabilities that were clipped on the lower bound of the trust region:  \\(r_{i,t}(\theta) < 1 - \epsilon_\mathrm{low}\\).
+- `clip_ratio/high_mean`: The average ratio of sequence probabilities that were clipped on the upper bound of the trust region:  \\(r_{i,t}(\theta) > 1 + \epsilon_\mathrm{high}\\).
 - `clip_ratio/high_max`: The maximum ratio of sequence probabilities that were clipped on the upper bound of the trust region:  \\(r_{i,t}(\theta) > 1 + \epsilon_\mathrm{high}\\).
 
 ## Customization
@@ -166,6 +154,7 @@ $$
 ### Speed up training with vLLM-powered generation
 
 Generation is often the main bottleneck when training with online methods. To accelerate generation, you can use [vLLM](https://github.com/vllm-project/vllm), a high-throughput, low-latency inference engine for LLMs. To enable it, first install the package with
+
 ```shell
 pip install trl[vllm]
 ```
@@ -177,11 +166,13 @@ We support two ways of using vLLM during training: **server mode** and **colocat
 In this mode, vLLM runs in a separate process (and using separate GPUs) and communicates with the trainer via HTTP. This is ideal if you have dedicated GPUs for inference.
 
 1. **Start the vLLM server**:
+
    ```bash
    trl vllm-serve --model <model_name>
    ```
 
 2. **Enable server mode in your training script**:
+
    ```python
    from trl import RLOOConfig
 
@@ -214,12 +205,7 @@ training_args = RLOOConfig(
 >
 > We provide a [HF Space](https://huggingface.co/spaces/trl-lib/recommend-vllm-memory) to help estimate the recommended GPU memory utilization based on your model configuration and experiment settings. Simply use it as follows to get `vllm_gpu_memory_utilization` recommendation:
 >
-> <iframe
-> 	src="https://trl-lib-recommend-vllm-memory.hf.space"
-> 	frameborder="0"
-> 	width="850"
-> 	height="450"
-> ></iframe>
+> <iframe src="https://trl-lib-recommend-vllm-memory.hf.space" frameborder="0" width="850" height="450"></iframe>
 >
 > If the recommended value does not work in your environment, we suggest adding a small buffer (e.g., +0.05 or +0.1) to the recommended value to ensure stability.
 >
@@ -307,11 +293,13 @@ if __name__=="__main__":
 
 The [`RLOOTrainer`] supports using custom reward functions instead of dense reward models. To ensure compatibility, your reward function must satisfy the following requirements:
 
+Reward functions can be either synchronous Python callables or asynchronous `async def` coroutines. When you provide multiple asynchronous reward functions, they are awaited concurrently (run in parallel via `asyncio.gather`) so their latency overlaps.
+
 1. **Input arguments**:
    - The function must accept the following as keyword arguments:
      - `prompts` (contains the prompts),
      - `completions` (contains the generated completions),
-     - `completions_ids` (contains the tokenized completions),
+     - `completion_ids` (contains the tokenized completions),
      - `trainer_state` ([`~transformers.TrainerState`]): The current state of the trainer. This can be used to implement dynamic reward functions, such as curriculum learning, where the reward is adjusted based on the training progress.
      - All column names (but `prompt`) that the dataset may have. For example, if the dataset contains a column named `ground_truth`, the function will be called with `ground_truth` as a keyword argument.
 
@@ -327,9 +315,9 @@ The [`RLOOTrainer`] supports using custom reward functions instead of dense rewa
 Below is an example of a reward function for a standard format that rewards longer completions:
 
 ```python
-def reward_func(completions_ids, **kwargs):
+def reward_func(completion_ids, **kwargs):
     """Reward function that assigns higher scores to longer completions (in terms of token count)."""
-    return [float(len(ids)) for ids in completions_ids]
+    return [float(len(ids)) for ids in completion_ids]
 ```
 
 You can test it as follows:
@@ -337,8 +325,8 @@ You can test it as follows:
 ```python
 >>> prompts = ["The sky is", "The sun is"]  # not used in the reward function, but the trainer will pass it
 >>> completions = [" blue.", " in the sky."]  # not used in the reward function, but the trainer will pass it
->>> completions_ids = [[6303, 13], [304, 279, 12884, 13]]
->>> reward_func(prompts=prompts, completions=completions, completions_ids=completions_ids)
+>>> completion_ids = [[6303, 13], [304, 279, 12884, 13]]
+>>> reward_func(prompts=prompts, completions=completions, completion_ids=completion_ids)
 [2.0, 4.0]
 ```
 
@@ -357,8 +345,8 @@ You can test it as follows:
 ```python
 >>> prompts = ["The sky is", "The sun is"]
 >>> completions = [" blue.", " in the sky."]
->>> completions_ids = [[6303, 13], [304, 279, 12884, 13]]  # not used in the reward function, but the trainer will pass it
->>> reward_func(prompts=prompts, completions=completions, completions_ids=completions_ids)
+>>> completion_ids = [[6303, 13], [304, 279, 12884, 13]]  # not used in the reward function, but the trainer will pass it
+>>> reward_func(prompts=prompts, completions=completions, completion_ids=completion_ids)
 [6.0, 12.0]
 ```
 
@@ -418,6 +406,7 @@ You can test this function as follows:
 >>> reward_func(prompts=prompts, completions=completions, ground_truth=ground_truth)
 [1.0, 0.0]
 ```
+
 #### Example 4: Multi-task reward functions
 
 Below is an example of using multiple reward functions in the [`RLOOTrainer`]. In this example, we define two task-specific reward functions: `math_reward_func` and `coding_reward_func`. The `math_reward_func` rewards math problems based on their correctness, while the `coding_reward_func` rewards coding problems based on whether the solution works.
@@ -478,7 +467,21 @@ In this example, the `math_reward_func` and `coding_reward_func` are designed to
 
 Note that the [`RLOOTrainer`] will ignore the `None` rewards returned by the reward functions and only consider the rewards returned by the relevant functions. This ensures that the model is trained on the relevant tasks and ignores the tasks for which there is no relevant reward function.
 
+#### Example 5: Asynchronous reward functions
 
+Custom reward functions can also be defined as `async def` coroutines. This is useful if your reward depends on slow I/O (for example, calling a remote service). When you pass multiple async reward functions, [`RLOOTrainer`] executes them concurrently so their latency overlaps.
+
+Below is a minimal example of an async reward function that simulates an I/O-bound operation:
+
+```python
+import asyncio
+
+async def async_reward_func(prompts, completions, **kwargs):
+    # Simulate an I/O-bound call (e.g., HTTP request, database lookup)
+    await asyncio.sleep(0.01)
+    # Simple toy reward: 1.0 if the completion is non-empty, else 0.0
+    return [1.0 if completion else 0.0 for completion in completions]
+```
 
 #### Passing the reward function to the trainer
 
@@ -493,13 +496,13 @@ trainer = RLOOTrainer(
 )
 ```
 
-If you have multiple reward functions, you can pass them as a list:
+You can pass several reward functions as a list; this list may include both synchronous and asynchronous functions:
 
 ```python
 from trl import RLOOTrainer
 
 trainer = RLOOTrainer(
-    reward_funcs=[reward_func1, reward_func2],
+    reward_funcs=[reward_func, async_reward_func1, async_reward_func2],
     ...,
 )
 ```
@@ -549,8 +552,14 @@ accelerate launch \
 
 ### Configuration Tips
 
-> [!WARNING]
-> VLM training may fail if image tokens are truncated. We highly recommend disabling truncation by setting `max_prompt_length` to `None`.
+> [!TIP]
+> For VLMs, truncating may remove image tokens, leading to errors during training. To avoid this, set `max_prompt_length=None` in the [`RLOOConfig`]. This allows the model to process the full sequence length without truncating image tokens.
+>
+> ```python
+> RLOOConfig(max_prompt_length=None, ...)
+> ```
+>
+> Only use `max_prompt_length` when you've verified that truncation won't remove image tokens for the entire dataset.
 
 - Use LoRA on vision-language projection layers
 - Enable 4-bit quantization to reduce memory usage

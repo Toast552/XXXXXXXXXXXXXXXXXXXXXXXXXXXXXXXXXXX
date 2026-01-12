@@ -1,4 +1,4 @@
-# Copyright 2020-2025 The HuggingFace Team. All rights reserved.
+# Copyright 2020-2026 The HuggingFace Team. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,7 +17,6 @@ import pathlib
 import pytest
 import torch
 from datasets import load_dataset
-from parameterized import parameterized
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 from transformers.utils import is_peft_available
 
@@ -108,12 +107,13 @@ class TestDataCollatorForPreference(TrlTestCase):
 
 
 class TestRewardTrainer(TrlTestCase):
-    @parameterized.expand(
+    @pytest.mark.parametrize(
+        "model_id",
         [
-            ("trl-internal-testing/tiny-Qwen2ForSequenceClassification-2.5",),
-            ("trl-internal-testing/tiny-Qwen3MoeForSequenceClassification",),
-            ("trl-internal-testing/tiny-LlamaForSequenceClassification-3.2",),
-        ]
+            "trl-internal-testing/tiny-Qwen2ForSequenceClassification-2.5",
+            "trl-internal-testing/tiny-Qwen3MoeForSequenceClassification",
+            "trl-internal-testing/tiny-LlamaForSequenceClassification-3.2",
+        ],
     )
     def test_train(self, model_id):
         # Get the dataset
@@ -137,13 +137,14 @@ class TestRewardTrainer(TrlTestCase):
             new_param = trainer.model.get_parameter(n)
             assert not torch.allclose(param, new_param), f"Parameter {n} has not changed"
 
-    @parameterized.expand(
+    @pytest.mark.parametrize(
+        "config_name",
         [
-            ("standard_preference",),
-            ("conversational_preference",),
-            ("standard_implicit_prompt_preference",),
-            ("conversational_implicit_prompt_preference",),
-        ]
+            "standard_preference",
+            "conversational_preference",
+            "standard_implicit_prompt_preference",
+            "conversational_implicit_prompt_preference",
+        ],
     )
     def test_train_dataset_types(self, config_name):
         # Get the dataset
@@ -174,7 +175,8 @@ class TestRewardTrainer(TrlTestCase):
     def test_train_model(self):
         # Instantiate the model
         model = AutoModelForSequenceClassification.from_pretrained(
-            "trl-internal-testing/tiny-Qwen2ForSequenceClassification-2.5"
+            "trl-internal-testing/tiny-Qwen2ForSequenceClassification-2.5",
+            dtype="float32",
         )
 
         # Get the dataset

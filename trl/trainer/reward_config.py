@@ -1,4 +1,4 @@
-# Copyright 2020-2025 The HuggingFace Team. All rights reserved.
+# Copyright 2020-2026 The HuggingFace Team. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 from transformers import TrainingArguments
 
@@ -37,7 +37,7 @@ class RewardConfig(TrainingArguments):
         model_init_kwargs (`dict[str, Any]`, *optional*):
             Keyword arguments for [`~transformers.AutoModelForCausalLM.from_pretrained`], used when the `model`
             argument of the [`RewardTrainer`] is provided as a string. If you're training a MoE architecture and want
-            to include the load balancing/auxilliary loss as a part of the final loss, remember to set
+            to include the load balancing/auxiliary loss as a part of the final loss, remember to set
             `output_router_logits=True` in this dictionary.
         chat_template_path (`str`, *optional*):
             If specified, sets the model's chat template. This can either be the path to a tokenizer (local directory
@@ -92,7 +92,7 @@ class RewardConfig(TrainingArguments):
             "help": "If True, use gradient checkpointing to save memory at the expense of slower backward pass."
         },
     )
-    bf16: Optional[bool] = field(
+    bf16: bool | None = field(
         default=None,
         metadata={
             "help": "Whether to use bf16 (mixed) precision instead of 32-bit. Requires Ampere or higher NVIDIA "
@@ -100,16 +100,28 @@ class RewardConfig(TrainingArguments):
             "`fp16` is not set."
         },
     )
+    # Transformers 4.57.0 introduced a bug that caused the dtype of `lr_scheduler_kwargs` to be unparsable. This issue
+    # was fixed in https://github.com/huggingface/transformers/pull/41322, but the fix has not yet been released. We
+    # add a temporary workaround here, which can be removed once the fix is available—likely in Transformers 4.57.2.
+    lr_scheduler_kwargs: dict | str | None = field(
+        default=None,
+        metadata={
+            "help": "Additional parameters for the lr_scheduler, such as {'num_cycles': 1} for cosine with hard "
+            "restarts."
+        },
+    )
 
     # Parameters that control the model
-    model_init_kwargs: Optional[dict[str, Any]] = field(
+    model_init_kwargs: dict[str, Any] | None = field(
         default=None,
         metadata={
             "help": "Keyword arguments for `AutoModelForCausalLM.from_pretrained`, used when the `model` argument of "
-            "the `RewardTrainer` is provided as a string."
+            "the `RewardTrainer` is provided as a string. If you're training a MoE architecture and want to include "
+            "the load balancing/auxiliary loss as a part of the final loss, remember to set "
+            "`output_router_logits=True` in this dictionary."
         },
     )
-    chat_template_path: Optional[str] = field(
+    chat_template_path: str | None = field(
         default=None,
         metadata={
             "help": "If specified, sets the model's chat template. This can either be the path to a tokenizer (local "
@@ -124,37 +136,37 @@ class RewardConfig(TrainingArguments):
     )
 
     # Parameters that control the data preprocessing
-    dataset_num_proc: Optional[int] = field(
+    dataset_num_proc: int | None = field(
         default=None,
         metadata={"help": "Number of processes to use for processing the dataset."},
     )
-    eos_token: Optional[str] = field(
+    eos_token: str | None = field(
         default=None,
         metadata={
             "help": "Token used to indicate the end of a turn or sequence. If `None`, it defaults to `processing_class.eos_token`."
         },
     )
-    pad_token: Optional[str] = field(
+    pad_token: str | None = field(
         default=None,
         metadata={
             "help": "Token used for padding. If `None`, it defaults to `processing_class.pad_token`, or if that "
             "is also `None`, it falls back to `processing_class.eos_token`."
         },
     )
-    max_length: Optional[int] = field(
+    max_length: int | None = field(
         default=1024,
         metadata={
             "help": "Maximum length of the tokenized sequence. Sequences longer than `max_length` are truncated from"
             "the right. If `None`, no truncation is applied."
         },
     )
-    pad_to_multiple_of: Optional[int] = field(
+    pad_to_multiple_of: int | None = field(
         default=None,
         metadata={"help": "If set, the sequences will be padded to a multiple of this value."},
     )
 
     # Parameters that control the training
-    center_rewards_coefficient: Optional[float] = field(
+    center_rewards_coefficient: float | None = field(
         default=None,
         metadata={
             "help": "Coefficient to incentivize the reward model to output mean-zero rewards (proposed by "
