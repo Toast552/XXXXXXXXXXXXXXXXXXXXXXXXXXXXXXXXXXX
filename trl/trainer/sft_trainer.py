@@ -14,6 +14,7 @@
 
 import contextlib
 import os
+import warnings
 from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -1000,9 +1001,10 @@ class SFTTrainer(BaseTrainer):
                                 completion = example["completion"]
                             prompt_ids = processing_class.apply_chat_template(
                                 prompt,
-                                tokenize=True,
-                                add_generation_prompt=True,
                                 tools=example.get("tools"),
+                                add_generation_prompt=True,
+                                tokenize=True,
+                                return_dict=False,
                                 **example.get("chat_template_kwargs", {}),
                             )
                             # Fix transformers inconsistency: for VLMs, apply_chat_template returns lists of lists
@@ -1010,10 +1012,10 @@ class SFTTrainer(BaseTrainer):
                             prompt_ids = prompt_ids[0] if isinstance(prompt_ids[0], list) else prompt_ids
                             prompt_completion_processed = processing_class.apply_chat_template(
                                 prompt + completion,
-                                return_dict=True,
-                                tokenize=True,
-                                return_assistant_tokens_mask=assistant_only_loss,
                                 tools=example.get("tools"),
+                                tokenize=True,
+                                return_dict=True,
+                                return_assistant_tokens_mask=assistant_only_loss,
                                 **example.get("chat_template_kwargs", {}),
                             )
                             # Fix transformers inconsistency: for VLMs, apply_chat_template returns lists of lists
@@ -1060,10 +1062,10 @@ class SFTTrainer(BaseTrainer):
                                 messages = example["messages"]
                             processed = processing_class.apply_chat_template(
                                 messages,
-                                return_dict=True,
-                                tokenize=True,
-                                return_assistant_tokens_mask=assistant_only_loss,
                                 tools=example.get("tools"),
+                                tokenize=True,
+                                return_dict=True,
+                                return_assistant_tokens_mask=assistant_only_loss,
                                 **example.get("chat_template_kwargs", {}),
                             )
                             # Fix transformers inconsistency: for VLMs, apply_chat_template returns lists of lists
@@ -1195,8 +1197,19 @@ class SFTTrainer(BaseTrainer):
         self._metrics[mode]["num_tokens"] = [self._total_train_tokens]
 
         if self.args.use_liger_kernel:
-            token_accuracy = self.accelerator.gather_for_metrics(outputs.token_accuracy).mean().item()
-            self._metrics[mode]["mean_token_accuracy"].append(token_accuracy)
+            if hasattr(outputs, "token_accuracy") and outputs.token_accuracy is not None:
+                token_accuracy = self.accelerator.gather_for_metrics(outputs.token_accuracy).mean().item()
+                self._metrics[mode]["mean_token_accuracy"].append(token_accuracy)
+            else:
+                # liger-kernel<=0.6.4 can omit token_accuracy even when requested; fixed for Gemma3 in
+                # https://github.com/linkedin/Liger-Kernel/pull/1010
+                warnings.warn(
+                    "liger-kernel did not return token_accuracy when requested. The mean_token_accuracy metric will "
+                    "not be logged. This may indicate an outdated liger-kernel version. Consider upgrading to the "
+                    "latest version. If the issue persists after upgrading, please report it to the liger-kernel "
+                    "repository.",
+                    stacklevel=2,
+                )
         else:
             # Compute accuracy from logits using argmax (traditional method)
             with torch.no_grad():

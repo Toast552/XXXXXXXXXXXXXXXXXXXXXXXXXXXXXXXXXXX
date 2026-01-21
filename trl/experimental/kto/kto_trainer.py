@@ -156,11 +156,10 @@ def _process_tokens(example: dict[str, Any], model: "PreTrainedModel" = None, **
     """Process tokens of a KTO specific dataset.
 
     At this stage, we don't convert to PyTorch tensors yet; we just handle the truncation in case the prompt +
-    completion responses is/are too long. First we truncate the prompt; if we're still too long, we truncate the
-    completion.
+    completion responses is/are too long. We truncate from the end (completion) to fit within max_length.
 
     We also create the labels for the completion responses, which are of length equal to the sum of the length of the
-    prompt and the completion response, with label_pad_token_id for the prompt tokens.
+    prompt and the completion response, with `-100` for the prompt tokens.
     """
     prompt = example["prompt"]
     completion = example["completion"]
@@ -199,20 +198,13 @@ def _process_tokens(example: dict[str, Any], model: "PreTrainedModel" = None, **
     if len(all_tokens["answer_input_ids"]) > 0 and eos_token_id != all_tokens["answer_input_ids"][-1]:
         max_length -= 1
 
-    # if combined sequence is too long (> max_length - 1 for BOS token - 1 for EOS), truncate the prompt
-    if len(all_tokens["prompt_input_ids"]) + len(all_tokens["answer_input_ids"]) > max_length:
-        for k in ["prompt_input_ids", "prompt_attention_mask"]:
-            if kwargs["truncation_mode"] == "keep_start":
-                all_tokens[k] = all_tokens[k][: kwargs["max_prompt_length"]]
-            elif kwargs["truncation_mode"] == "keep_end":
-                all_tokens[k] = all_tokens[k][-kwargs["max_prompt_length"] :]
-            else:
-                raise ValueError(f"Unknown truncation mode: {kwargs['truncation_mode']}")
-
-    # if that's still too long, truncate the response
-    if len(all_tokens["prompt_input_ids"]) + len(all_tokens["answer_input_ids"]) > max_length:
+    # if combined sequence is too long, truncate the completion (answer) from the end
+    prompt_length = len(all_tokens["prompt_input_ids"])
+    completion_length = len(all_tokens["answer_input_ids"])
+    if prompt_length + completion_length > max_length:
+        max_completion_length = max_length - prompt_length
         for k in ["answer_input_ids", "answer_attention_mask"]:
-            all_tokens[k] = all_tokens[k][: max_length - kwargs["max_prompt_length"]]
+            all_tokens[k] = all_tokens[k][:max_completion_length]
 
     # all input_ids and attention mask as is. We then check if we need to add BOS/EOS tokens
     batch[f"{kwargs['prefix']}prompt_input_ids"] = all_tokens["prompt_input_ids"]
@@ -245,9 +237,9 @@ def _process_tokens(example: dict[str, Any], model: "PreTrainedModel" = None, **
         ] + [1]
 
     batch[f"{kwargs['prefix']}completion_labels"] = batch[f"{kwargs['prefix']}completion_input_ids"][:]
-    batch[f"{kwargs['prefix']}completion_labels"][: len(batch[f"{kwargs['prefix']}prompt_input_ids"])] = [
-        kwargs["label_pad_token_id"]
-    ] * len(batch[f"{kwargs['prefix']}prompt_input_ids"])
+    batch[f"{kwargs['prefix']}completion_labels"][: len(batch[f"{kwargs['prefix']}prompt_input_ids"])] = [-100] * len(
+        batch[f"{kwargs['prefix']}prompt_input_ids"]
+    )
 
     return batch
 
@@ -360,17 +352,11 @@ class KTOTrainer(BaseTrainer):
 
         # Reference model initialization
         if isinstance(ref_model, str):
-            ref_model_init_kwargs = args.ref_model_init_kwargs or {}
+            ref_model_init_kwargs = args.model_init_kwargs or {}
             # Distributed training requires device_map=None
             if args.distributed_state.distributed_type in ["MULTI_GPU", "DEEPSPEED"]:
                 ref_model_init_kwargs["device_map"] = None
             ref_model = create_model_from_path(ref_model, **ref_model_init_kwargs)
-        else:
-            if ref_model is not None and args.ref_model_init_kwargs is not None:
-                logger.warning(
-                    "You passed `ref_model_init_kwargs` to the KTOConfig, but your ref_model is already instantiated. "
-                    "The `ref_model_init_kwargs` will be ignored."
-                )
 
         # Initialize this variable to False. This helps tracking the case when `peft_module_casting_to_bf16`
         # has been called in order to properly call autocast if needed.
@@ -471,19 +457,9 @@ class KTOTrainer(BaseTrainer):
         if args.max_length is not None:
             max_length = args.max_length
 
-        if args.max_prompt_length is None:
-            logger.warning(
-                "When using DPODataCollatorWithPadding, you should set `max_prompt_length` in the KTOTrainer's init"
-                " it will be set to `128` by default, but you should do it yourself in the future.",
-            )
-            max_prompt_length = 128
-        if args.max_prompt_length is not None:
-            max_prompt_length = args.max_prompt_length
-
         if data_collator is None:
             data_collator = DPODataCollatorWithPadding(
                 pad_token_id=processing_class.pad_token_id,
-                label_pad_token_id=args.label_pad_token_id,
             )
 
             if args.remove_unused_columns:
@@ -507,10 +483,6 @@ class KTOTrainer(BaseTrainer):
         self.loss_type = args.loss_type
         self.max_length = max_length
         self.generate_during_eval = args.generate_during_eval
-        self.label_pad_token_id = args.label_pad_token_id
-        self.padding_value = args.padding_value if args.padding_value is not None else processing_class.pad_token_id
-        self.max_prompt_length = max_prompt_length
-        self.truncation_mode = args.truncation_mode
         self.processing_class = processing_class
         self.precompute_ref_log_probs = args.precompute_ref_log_probs
 
@@ -595,9 +567,6 @@ class KTOTrainer(BaseTrainer):
                 "prefix": "",
                 "tokenizer": self.processing_class,
                 "max_length": self.max_length,
-                "truncation_mode": self.truncation_mode,
-                "label_pad_token_id": self.label_pad_token_id,
-                "max_prompt_length": self.max_prompt_length,
             }
 
             train_dataset = train_dataset.map(
@@ -765,9 +734,7 @@ class KTOTrainer(BaseTrainer):
                 raise ValueError(
                     "You cannot use `use_liger_kernel=True` with Peft models. Please set `use_liger_kernel=False`."
                 )
-            self.kto_loss_fn = LigerFusedLinearKTOLoss(
-                ignore_index=self.label_pad_token_id, beta=self.beta, use_ref_model=(self.ref_model is not None)
-            )
+            self.kto_loss_fn = LigerFusedLinearKTOLoss(beta=self.beta, use_ref_model=(self.ref_model is not None))
 
     @contextmanager
     def null_ref_context(self):
@@ -912,7 +879,6 @@ class KTOTrainer(BaseTrainer):
             completion_logits,
             padded_batch["completion_labels"],
             average_log_prob=False,
-            label_pad_token_id=self.label_pad_token_id,
         )
 
         if self.calculate_KL:
@@ -920,7 +886,6 @@ class KTOTrainer(BaseTrainer):
                 KL_logits,
                 padded_batch["KL_completion_labels"],
                 average_log_prob=False,
-                label_pad_token_id=self.label_pad_token_id,
             )
         else:
             KL_logps = None
@@ -932,7 +897,6 @@ class KTOTrainer(BaseTrainer):
         logits: torch.FloatTensor,
         labels: torch.LongTensor,
         average_log_prob: bool = False,
-        label_pad_token_id: int = -100,
     ) -> torch.FloatTensor:
         """Compute the log probabilities of the given labels under the given logits.
 
@@ -940,13 +904,11 @@ class KTOTrainer(BaseTrainer):
             logits:
                 Logits of the model (unnormalized). Shape: (batch_size, sequence_length, vocab_size)
             labels:
-                Labels for which to compute the log probabilities. Label tokens with a value of label_pad_token_id are
-                ignored. Shape: (batch_size, sequence_length)
+                Labels for which to compute the log probabilities. Label tokens with a value of `-100` are ignored.
+                Shape: (batch_size, sequence_length)
             average_log_prob:
                 If True, return the average log probability per (non-masked) token. Otherwise, return the sum of the
                 log probabilities of the (non-masked) tokens.
-            label_pad_token_id:
-                The label value to ignore when computing log probabilities.
 
         Returns:
             A tensor of shape (batch_size,) containing the average/sum log probabilities of the given labels under the
@@ -959,10 +921,10 @@ class KTOTrainer(BaseTrainer):
         labels = labels[:, 1:].clone()
         logits = logits[:, :-1, :]
 
-        loss_mask = labels != label_pad_token_id
+        loss_mask = labels != -100
 
         # dummy token; we'll ignore the losses on these tokens later
-        labels[labels == label_pad_token_id] = 0
+        labels[labels == -100] = 0
 
         per_token_logps = selective_log_softmax(logits, labels)
 
@@ -991,7 +953,6 @@ class KTOTrainer(BaseTrainer):
             completion_logits,
             batch["completion_labels"],
             average_log_prob=False,
-            label_pad_token_id=self.label_pad_token_id,
         )
 
         if completion_logps.shape[0] != len(batch["label"]):
@@ -1111,7 +1072,6 @@ class KTOTrainer(BaseTrainer):
                 KL_logits,
                 batch["KL_completion_labels"],
                 average_log_prob=False,
-                label_pad_token_id=self.label_pad_token_id,
             )
         return KL_logps
 
@@ -1152,11 +1112,7 @@ class KTOTrainer(BaseTrainer):
             model_kwargs["output_router_logits"] = True
 
         # skip the lm head and get the last hidden state
-        if hasattr(model, "get_decoder") and model.get_decoder() is not None:
-            base_model = model.get_decoder()
-        else:
-            base_attr = getattr(model, "base_model_prefix", self.args.base_model_attribute_name)
-            base_model = getattr(model, base_attr, model)
+        base_model = model.get_decoder()
         outputs = base_model(
             batch["completion_input_ids"],
             attention_mask=batch["completion_attention_mask"],
@@ -1165,11 +1121,7 @@ class KTOTrainer(BaseTrainer):
         )
 
         # reference model
-        if hasattr(self.ref_model, "get_decoder") and self.ref_model.get_decoder() is not None:
-            ref_base_model = self.ref_model.get_decoder()
-        else:
-            ref_attr = getattr(self.ref_model, "base_model_prefix", self.args.base_model_attribute_name)
-            ref_base_model = getattr(self.ref_model, ref_attr, self.ref_model)
+        ref_base_model = self.ref_model.get_decoder()
         ref_outputs = ref_base_model(
             batch["completion_input_ids"],
             attention_mask=batch["completion_attention_mask"],

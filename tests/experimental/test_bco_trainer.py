@@ -56,7 +56,7 @@ class TestBCOTrainer(TrlTestCase):
         training_args = BCOConfig(
             output_dir=self.tmp_dir,
             remove_unused_columns=False,  # warning raised if not set to False
-            learning_rate=0.1,  # increase the learning rate to speed up the test
+            learning_rate=0.1,  # use higher lr because gradients are tiny and default lr can stall updates
             report_to="none",
         )
 
@@ -92,7 +92,7 @@ class TestBCOTrainer(TrlTestCase):
         training_args = BCOConfig(
             output_dir=self.tmp_dir,
             remove_unused_columns=False,  # warning raised if not set to False
-            learning_rate=0.1,  # increase the learning rate to speed up the test
+            learning_rate=0.1,  # use higher lr because gradients are tiny and default lr can stall updates
             precompute_ref_log_probs=True,
             report_to="none",
         )
@@ -211,7 +211,6 @@ class TestBCOTrainer(TrlTestCase):
             "tokenizer": trainer.processing_class,
             "max_length": trainer.max_length,
             "truncation_mode": trainer.truncation_mode,
-            "label_pad_token_id": trainer.label_pad_token_id,
             "max_prompt_length": trainer.max_prompt_length,
         }
         processed_dataset = tokenized_dataset.map(_process_tokens, fn_kwargs=fn_kwargs)
@@ -235,7 +234,7 @@ class TestBCOTrainer(TrlTestCase):
         training_args = BCOConfig(
             output_dir=self.tmp_dir,
             remove_unused_columns=False,  # warning raised if not set to False
-            learning_rate=0.1,  # increase the learning rate to speed up the test
+            learning_rate=0.1,  # use higher lr because gradients are tiny and default lr can stall updates
             report_to="none",
         )
 
@@ -282,7 +281,7 @@ class TestBCOTrainer(TrlTestCase):
         training_args = BCOConfig(
             output_dir=self.tmp_dir,
             remove_unused_columns=False,  # warning raised if not set to False
-            learning_rate=0.1,  # increase the learning rate to speed up the test
+            learning_rate=0.1,  # use higher lr because gradients are tiny and default lr can stall updates
             report_to="none",
         )
 
@@ -320,7 +319,7 @@ class TestBCOTrainer(TrlTestCase):
         training_args = BCOConfig(
             output_dir=self.tmp_dir,
             remove_unused_columns=False,  # warning raised if not set to False
-            learning_rate=0.1,  # increase the learning rate to speed up the test
+            learning_rate=0.1,  # use higher lr because gradients are tiny and default lr can stall updates
             report_to="none",
         )
 

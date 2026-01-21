@@ -15,6 +15,7 @@
 import gc
 import os
 import warnings
+from collections.abc import Callable
 from unittest.mock import patch
 
 import numpy as np
@@ -53,6 +54,34 @@ from .testing_utils import (
 
 if is_peft_available():
     from peft import LoraConfig, PeftModel, get_peft_model
+
+
+def multiply_tool(a: int, b: int) -> int:
+    """
+    Multiplies two integers.
+
+    Args:
+        a: The first integer.
+        b: The second integer.
+
+    Returns:
+        The product of the two integers.
+    """
+    return a * b
+
+
+async def async_multiply_tool(a: int, b: int) -> int:
+    """
+    Asynchronously multiplies two integers.
+
+    Args:
+        a: The first integer.
+        b: The second integer.
+
+    Returns:
+        The product of the two integers.
+    """
+    return a * b
 
 
 class TestGetHighEntropyMask(TrlTestCase):
@@ -143,7 +172,7 @@ class TestGRPOTrainer(TrlTestCase):
 
         training_args = GRPOConfig(
             output_dir=self.tmp_dir,
-            learning_rate=0.1,  # increase the learning rate to speed up the test
+            learning_rate=0.1,  # use higher lr because gradients are tiny and default lr can stall updates
             per_device_train_batch_size=3,  # reduce the batch size to reduce memory usage
             num_generations=3,  # reduce the number of generations to reduce memory usage
             max_completion_length=8,  # reduce the completion length to reduce memory usage
@@ -180,7 +209,7 @@ class TestGRPOTrainer(TrlTestCase):
 
         training_args = GRPOConfig(
             output_dir=self.tmp_dir,
-            learning_rate=0.1,  # increase the learning rate to speed up the test
+            learning_rate=0.1,  # use higher lr because gradients are tiny and default lr can stall updates
             per_device_train_batch_size=3,  # reduce the batch size to reduce memory usage
             num_generations=3,  # reduce the number of generations to reduce memory usage
             max_completion_length=32,  # reduce the completion length to reduce memory usage
@@ -253,12 +282,39 @@ class TestGRPOTrainer(TrlTestCase):
 
         trainer.train()
 
+    # Regression test for eval_on_start with loss_type="grpo" (one of the loss types that depends on
+    # current_gradient_accumulation_steps): evaluation runs before the first training step, when that value is still
+    # unset. Previously this caused the initial eval to crash.
+    def test_training_eval_on_start(self):
+        dataset = load_dataset("trl-internal-testing/zen", "standard_prompt_only")
+        training_args = GRPOConfig(
+            output_dir=self.tmp_dir,
+            learning_rate=0.1,  # use higher lr because gradients are tiny and default lr can stall updates
+            per_device_train_batch_size=3,  # reduce the batch size to reduce memory usage
+            per_device_eval_batch_size=3,  # reduce the batch size to reduce memory usage
+            num_generations=3,  # reduce the number of generations to reduce memory usage
+            max_completion_length=8,  # reduce the completion length to reduce memory usage
+            loss_type="grpo",
+            eval_strategy="steps",
+            eval_steps=2,
+            eval_on_start=True,
+            report_to="none",
+        )
+        trainer = GRPOTrainer(
+            model="trl-internal-testing/tiny-Qwen2ForCausalLM-2.5",
+            reward_funcs="trl-internal-testing/tiny-Qwen2ForSequenceClassification-2.5",
+            args=training_args,
+            train_dataset=dataset["train"],
+            eval_dataset=dataset["test"],
+        )
+        trainer.train()
+
     def test_training_multiple_iterations(self):
         dataset = load_dataset("trl-internal-testing/zen", "standard_prompt_only", split="train")
 
         training_args = GRPOConfig(
             output_dir=self.tmp_dir,
-            learning_rate=0.1,  # increase the learning rate to speed up the test
+            learning_rate=0.1,  # use higher lr because gradients are tiny and default lr can stall updates
             per_device_train_batch_size=3,  # reduce the batch size to reduce memory usage
             num_generations=3,  # reduce the number of generations to reduce memory usage
             max_completion_length=8,  # reduce the completion length to reduce memory usage
@@ -291,7 +347,7 @@ class TestGRPOTrainer(TrlTestCase):
 
         training_args = GRPOConfig(
             output_dir=self.tmp_dir,
-            learning_rate=0.1,  # increase the learning rate to speed up the test
+            learning_rate=0.1,  # use higher lr because gradients are tiny and default lr can stall updates
             per_device_train_batch_size=3,  # reduce the batch size to reduce memory usage
             num_generations=3,  # reduce the number of generations to reduce memory usage
             max_completion_length=8,  # reduce the completion length to reduce memory usage
@@ -372,7 +428,7 @@ class TestGRPOTrainer(TrlTestCase):
 
         training_args = GRPOConfig(
             output_dir=self.tmp_dir,
-            learning_rate=0.1,
+            learning_rate=0.1,  # use higher lr because gradients are tiny and default lr can stall updates
             per_device_train_batch_size=3,
             num_generations=3,
             max_completion_length=8,
@@ -419,7 +475,7 @@ class TestGRPOTrainer(TrlTestCase):
 
         training_args = GRPOConfig(
             output_dir=self.tmp_dir,
-            learning_rate=0.1,  # increase the learning rate to speed up the test
+            learning_rate=0.1,  # use higher lr because gradients are tiny and default lr can stall updates
             per_device_train_batch_size=3,  # reduce the batch size to reduce memory usage
             num_generations=3,  # reduce the number of generations to reduce memory usage
             max_completion_length=8,  # reduce the completion length to reduce memory usage
@@ -454,7 +510,7 @@ class TestGRPOTrainer(TrlTestCase):
 
         training_args = GRPOConfig(
             output_dir=self.tmp_dir,
-            learning_rate=0.1,  # increase the learning rate to speed up the test
+            learning_rate=0.1,  # use higher lr because gradients are tiny and default lr can stall updates
             per_device_train_batch_size=3,  # reduce the batch size to reduce memory usage
             num_generations=3,  # reduce the number of generations to reduce memory usage
             max_completion_length=8,  # reduce the completion length to reduce memory usage
@@ -489,7 +545,7 @@ class TestGRPOTrainer(TrlTestCase):
 
         training_args = GRPOConfig(
             output_dir=self.tmp_dir,
-            learning_rate=0.1,  # increase the learning rate to speed up the test
+            learning_rate=0.1,  # use higher lr because gradients are tiny and default lr can stall updates
             per_device_train_batch_size=3,  # reduce the batch size to reduce memory usage
             num_generations=3,  # reduce the number of generations to reduce memory usage
             max_completion_length=8,  # reduce the completion length to reduce memory usage
@@ -527,7 +583,7 @@ class TestGRPOTrainer(TrlTestCase):
 
         training_args = GRPOConfig(
             output_dir=self.tmp_dir,
-            learning_rate=0.1,  # increase the learning rate to speed up the test
+            learning_rate=0.1,  # use higher lr because gradients are tiny and default lr can stall updates
             per_device_train_batch_size=3,  # reduce the batch size to reduce memory usage
             num_generations=3,  # reduce the number of generations to reduce memory usage
             max_completion_length=8,  # reduce the completion length to reduce memory usage
@@ -568,7 +624,7 @@ class TestGRPOTrainer(TrlTestCase):
 
         training_args = GRPOConfig(
             output_dir=self.tmp_dir,
-            learning_rate=0.1,  # increase the learning rate to speed up the test
+            learning_rate=0.1,  # use higher lr because gradients are tiny and default lr can stall updates
             per_device_train_batch_size=3,  # reduce the batch size to reduce memory usage
             num_generations=3,  # reduce the number of generations to reduce memory usage
             max_completion_length=8,  # reduce the completion length to reduce memory usage
@@ -606,7 +662,7 @@ class TestGRPOTrainer(TrlTestCase):
 
         training_args = GRPOConfig(
             output_dir=self.tmp_dir,
-            learning_rate=0.1,
+            learning_rate=0.1,  # use higher lr because gradients are tiny and default lr can stall updates
             per_device_train_batch_size=3,
             num_generations=3,
             max_completion_length=8,
@@ -650,7 +706,7 @@ class TestGRPOTrainer(TrlTestCase):
 
         training_args = GRPOConfig(
             output_dir=self.tmp_dir,
-            learning_rate=0.1,  # increase the learning rate to speed up the test
+            learning_rate=0.1,  # use higher lr because gradients are tiny and default lr can stall updates
             per_device_train_batch_size=3,  # reduce the batch size to reduce memory usage
             num_generations=3,  # reduce the number of generations to reduce memory usage
             max_completion_length=8,  # reduce the completion length to reduce memory usage
@@ -690,7 +746,7 @@ class TestGRPOTrainer(TrlTestCase):
 
         training_args = GRPOConfig(
             output_dir=self.tmp_dir,
-            learning_rate=0.1,  # increase the learning rate to speed up the test
+            learning_rate=0.1,  # use higher lr because gradients are tiny and default lr can stall updates
             per_device_train_batch_size=3,  # reduce the batch size to reduce memory usage
             num_generations=3,  # reduce the number of generations to reduce memory usage
             max_completion_length=8,  # reduce the completion length to reduce memory usage
@@ -730,7 +786,7 @@ class TestGRPOTrainer(TrlTestCase):
 
         training_args = GRPOConfig(
             output_dir=self.tmp_dir,
-            learning_rate=0.1,  # increase the learning rate to speed up the test
+            learning_rate=0.1,  # use higher lr because gradients are tiny and default lr can stall updates
             per_device_train_batch_size=3,  # reduce the batch size to reduce memory usage
             num_generations=3,  # reduce the number of generations to reduce memory usage
             max_completion_length=8,  # reduce the completion length to reduce memory usage
@@ -759,7 +815,7 @@ class TestGRPOTrainer(TrlTestCase):
 
         training_args = GRPOConfig(
             output_dir=self.tmp_dir,
-            learning_rate=0.1,  # increase the learning rate to speed up the test
+            learning_rate=0.1,  # use higher lr because gradients are tiny and default lr can stall updates
             per_device_train_batch_size=3,  # reduce the batch size to reduce memory usage
             num_generations=3,  # reduce the number of generations to reduce memory usage
             max_completion_length=8,  # reduce the completion length to reduce memory usage
@@ -790,7 +846,7 @@ class TestGRPOTrainer(TrlTestCase):
         training_args = GRPOConfig(
             output_dir=self.tmp_dir,
             beta=0.1,  # set beta to non-zero value to test the case where the reference model is used
-            learning_rate=0.1,  # increase the learning rate to speed up the test
+            learning_rate=0.1,  # use higher lr because gradients are tiny and default lr can stall updates
             per_device_train_batch_size=3,  # reduce the batch size to reduce memory usage
             num_generations=3,  # reduce the number of generations to reduce memory usage
             max_completion_length=8,  # reduce the completion length to reduce memory usage
@@ -824,7 +880,7 @@ class TestGRPOTrainer(TrlTestCase):
         mask = torch.ones((3, 4))  # B=3 sequences, T=4 tokens
 
         advantages = torch.tensor([1.0, -1.0, -1.0]).unsqueeze(-1)
-        old_per_token_logps = torch.zeros((3, 4))
+        sampling_per_token_logps = torch.zeros((3, 4))
         per_token_logps = torch.zeros((3, 4))
 
         per_token_logps[0, :] = -2.0  # Pos adv + High KL (0−(−2)=2) -> Keep
@@ -836,7 +892,7 @@ class TestGRPOTrainer(TrlTestCase):
         expected_mask = torch.tensor([[1.0], [1.0], [0.0]])
 
         off_policy_mask = GRPOTrainer.get_off_policy_mask(
-            advantages, per_token_logps, old_per_token_logps, mask, off_policy_threshold
+            advantages, per_token_logps, sampling_per_token_logps, mask, off_policy_threshold
         )
 
         torch.testing.assert_close(off_policy_mask, expected_mask)
@@ -846,7 +902,7 @@ class TestGRPOTrainer(TrlTestCase):
         mask = torch.tensor([[1.0, 1.0, 0.0, 0.0]])  # 2 valid tokens
         advantages = torch.tensor([[-1.0]])  # Negative advantage
 
-        old_per_token_logps = torch.zeros((1, 4))
+        sampling_per_token_logps = torch.zeros((1, 4))
         per_token_logps = torch.zeros((1, 4))
 
         # Valid tokens have High KL (2.0)
@@ -863,7 +919,7 @@ class TestGRPOTrainer(TrlTestCase):
         expected_mask = torch.tensor([[0.0]])
 
         off_policy_mask = GRPOTrainer.get_off_policy_mask(
-            advantages, per_token_logps, old_per_token_logps, mask, off_policy_threshold
+            advantages, per_token_logps, sampling_per_token_logps, mask, off_policy_threshold
         )
 
         torch.testing.assert_close(off_policy_mask, expected_mask)
@@ -875,7 +931,7 @@ class TestGRPOTrainer(TrlTestCase):
         expected_mask_keep = torch.tensor([[1.0]])
 
         off_policy_mask_keep = GRPOTrainer.get_off_policy_mask(
-            advantages, per_token_logps, old_per_token_logps, mask, off_policy_threshold
+            advantages, per_token_logps, sampling_per_token_logps, mask, off_policy_threshold
         )
 
         torch.testing.assert_close(off_policy_mask_keep, expected_mask_keep)
@@ -886,7 +942,7 @@ class TestGRPOTrainer(TrlTestCase):
         training_args = GRPOConfig(
             output_dir=self.tmp_dir,
             off_policy_mask_threshold=0.5,
-            learning_rate=0.1,  # increase the learning rate to speed up the test
+            learning_rate=0.1,  # use higher lr because gradients are tiny and default lr can stall updates
             per_device_train_batch_size=3,  # reduce the batch size to reduce memory usage
             num_generations=3,  # reduce the number of generations to reduce memory usage
             max_completion_length=8,  # reduce the completion length to reduce memory usage
@@ -918,7 +974,7 @@ class TestGRPOTrainer(TrlTestCase):
             output_dir=self.tmp_dir,
             off_policy_mask_threshold=0.5,
             use_liger_kernel=True,
-            learning_rate=0.1,  # increase the learning rate to speed up the test
+            learning_rate=0.1,  # use higher lr because gradients are tiny and default lr can stall updates
             per_device_train_batch_size=3,  # reduce the batch size to reduce memory usage
             num_generations=3,  # reduce the number of generations to reduce memory usage
             max_completion_length=8,  # reduce the completion length to reduce memory usage
@@ -947,7 +1003,7 @@ class TestGRPOTrainer(TrlTestCase):
             output_dir=self.tmp_dir,
             beta=0.1,  # set beta to non-zero value to test the case where the reference model is used
             use_bias_correction_kl=True,
-            learning_rate=0.1,  # increase the learning rate to speed up the test
+            learning_rate=0.1,  # use higher lr because gradients are tiny and default lr can stall updates
             per_device_train_batch_size=3,  # reduce the batch size to reduce memory usage
             num_generations=3,  # reduce the number of generations to reduce memory usage
             max_completion_length=8,  # reduce the completion length to reduce memory usage
@@ -980,7 +1036,7 @@ class TestGRPOTrainer(TrlTestCase):
         dataset = load_dataset("trl-internal-testing/zen", "standard_prompt_only", split="train")
         training_args = GRPOConfig(
             output_dir=self.tmp_dir,
-            learning_rate=0.1,
+            learning_rate=0.1,  # use higher lr because gradients are tiny and default lr can stall updates
             per_device_train_batch_size=3,
             num_generations=3,
             max_completion_length=8,
@@ -1009,7 +1065,7 @@ class TestGRPOTrainer(TrlTestCase):
         dataset = load_dataset("trl-internal-testing/zen", "standard_prompt_only", split="train")
         training_args = GRPOConfig(
             output_dir=self.tmp_dir,
-            learning_rate=0.1,  # increase the learning rate to speed up the test
+            learning_rate=0.1,  # use higher lr because gradients are tiny and default lr can stall updates
             per_device_train_batch_size=3,  # reduce the batch size to reduce memory usage
             num_generations=3,  # reduce the number of generations to reduce memory usage
             max_completion_length=8,  # reduce the completion length to reduce memory usage
@@ -1045,7 +1101,7 @@ class TestGRPOTrainer(TrlTestCase):
 
         training_args = GRPOConfig(
             output_dir=self.tmp_dir,
-            learning_rate=0.1,  # increase the learning rate to speed up the test
+            learning_rate=0.1,  # use higher lr because gradients are tiny and default lr can stall updates
             per_device_train_batch_size=3,  # reduce the batch size to reduce memory usage
             num_generations=3,  # reduce the number of generations to reduce memory usage
             max_completion_length=8,  # reduce the completion length to reduce memory usage
@@ -1088,7 +1144,7 @@ class TestGRPOTrainer(TrlTestCase):
 
         training_args = GRPOConfig(
             output_dir=self.tmp_dir,
-            learning_rate=0.1,  # increase the learning rate to speed up the test
+            learning_rate=0.1,  # use higher lr because gradients are tiny and default lr can stall updates
             per_device_train_batch_size=3,  # reduce the batch size to reduce memory usage
             num_generations=3,  # reduce the number of generations to reduce memory usage
             max_completion_length=8,  # reduce the completion length to reduce memory usage
@@ -1122,7 +1178,7 @@ class TestGRPOTrainer(TrlTestCase):
 
         training_args = GRPOConfig(
             output_dir=self.tmp_dir,
-            learning_rate=0.1,
+            learning_rate=0.1,  # use higher lr because gradients are tiny and default lr can stall updates
             per_device_train_batch_size=3,
             num_generations=3,
             max_completion_length=8,
@@ -1155,7 +1211,7 @@ class TestGRPOTrainer(TrlTestCase):
 
         training_args = GRPOConfig(
             output_dir=self.tmp_dir,
-            learning_rate=0.1,  # increase the learning rate to speed up the test
+            learning_rate=0.1,  # use higher lr because gradients are tiny and default lr can stall updates
             per_device_train_batch_size=3,  # reduce the batch size to reduce memory usage
             num_generations=3,  # reduce the number of generations to reduce memory usage
             max_completion_length=8,  # reduce the completion length to reduce memory usage
@@ -1192,7 +1248,7 @@ class TestGRPOTrainer(TrlTestCase):
 
         training_args = GRPOConfig(
             output_dir=self.tmp_dir,
-            learning_rate=0.1,  # increase the learning rate to speed up the test
+            learning_rate=0.1,  # use higher lr because gradients are tiny and default lr can stall updates
             per_device_train_batch_size=3,  # reduce the batch size to reduce memory usage
             num_generations=3,  # reduce the number of generations to reduce memory usage
             max_completion_length=8,  # reduce the completion length to reduce memory usage
@@ -1222,13 +1278,51 @@ class TestGRPOTrainer(TrlTestCase):
             new_param = trainer.model.get_parameter(n)
             assert not torch.equal(param, new_param), f"Parameter {n} has not changed."
 
+    def test_training_normalize_then_sum_aggregation(self):
+        dataset = load_dataset("trl-internal-testing/zen", "standard_prompt_only", split="train")
+
+        def reward_func1(completions, **kwargs):
+            """Reward function that rewards longer completions."""
+            return [float(len(completion)) for completion in completions]
+
+        def reward_func2(completions, **kwargs):
+            """Reward function that rewards completions with more unique letters."""
+            return [float(len(set(completion))) for completion in completions]
+
+        training_args = GRPOConfig(
+            output_dir=self.tmp_dir,
+            learning_rate=0.1,  # increase the learning rate to speed up the test
+            per_device_train_batch_size=3,  # reduce the batch size to reduce memory usage
+            num_generations=3,  # reduce the number of generations to reduce memory usage
+            max_completion_length=8,  # reduce the completion length to reduce memory usage
+            multi_objective_aggregation="normalize_then_sum",
+            report_to="none",
+        )
+        trainer = GRPOTrainer(
+            model="trl-internal-testing/tiny-Qwen2ForCausalLM-2.5",
+            reward_funcs=[reward_func1, reward_func2],
+            args=training_args,
+            train_dataset=dataset,
+        )
+
+        previous_trainable_params = {n: param.clone() for n, param in trainer.model.named_parameters()}
+
+        trainer.train()
+
+        assert trainer.state.log_history[-1]["train_loss"] is not None
+
+        # Check that the params have changed
+        for n, param in previous_trainable_params.items():
+            new_param = trainer.model.get_parameter(n)
+            assert not torch.equal(param, new_param), f"Parameter {n} has not changed."
+
     @pytest.mark.parametrize("scale_rewards", [False, "group", "batch", True, "none"])
     def test_training_scale_rewards(self, scale_rewards):
         dataset = load_dataset("trl-internal-testing/zen", "standard_prompt_only", split="train")
 
         training_args = GRPOConfig(
             output_dir=self.tmp_dir,
-            learning_rate=0.1,  # increase the learning rate to speed up the test
+            learning_rate=0.1,  # use higher lr because gradients are tiny and default lr can stall updates
             per_device_train_batch_size=3,  # reduce the batch size to reduce memory usage
             num_generations=3,  # reduce the number of generations to reduce memory usage
             max_completion_length=8,  # reduce the completion length to reduce memory usage
@@ -1278,7 +1372,7 @@ class TestGRPOTrainer(TrlTestCase):
 
         training_args = GRPOConfig(
             output_dir=self.tmp_dir,
-            learning_rate=0.1,  # increase the learning rate to speed up the test
+            learning_rate=0.1,  # use higher lr because gradients are tiny and default lr can stall updates
             per_device_train_batch_size=3,  # reduce the batch size to reduce memory usage
             num_generations=3,  # reduce the number of generations to reduce memory usage
             max_completion_length=8,  # reduce the completion length to reduce memory usage
@@ -1316,7 +1410,7 @@ class TestGRPOTrainer(TrlTestCase):
 
         training_args = GRPOConfig(
             output_dir=self.tmp_dir,
-            learning_rate=0.1,  # increase the learning rate to speed up the test
+            learning_rate=0.1,  # use higher lr because gradients are tiny and default lr can stall updates
             per_device_train_batch_size=3,  # reduce the batch size to reduce memory usage
             num_generations=3,  # reduce the number of generations to reduce memory usage
             max_completion_length=8,  # reduce the completion length to reduce memory usage
@@ -1351,7 +1445,7 @@ class TestGRPOTrainer(TrlTestCase):
 
         training_args = GRPOConfig(
             output_dir=self.tmp_dir,
-            learning_rate=0.1,  # increase the learning rate to speed up the test
+            learning_rate=0.1,  # use higher lr because gradients are tiny and default lr can stall updates
             per_device_train_batch_size=3,  # reduce the batch size to reduce memory usage
             num_generations=3,  # reduce the number of generations to reduce memory usage
             max_completion_length=8,  # reduce the completion length to reduce memory usage
@@ -1375,7 +1469,7 @@ class TestGRPOTrainer(TrlTestCase):
 
         training_args = GRPOConfig(
             output_dir=self.tmp_dir,
-            learning_rate=0.1,  # increase the learning rate to speed up the test
+            learning_rate=0.1,  # use higher lr because gradients are tiny and default lr can stall updates
             per_device_train_batch_size=3,  # reduce the batch size to reduce memory usage
             max_completion_length=8,  # reduce the completion length to reduce memory usage
             num_generations=6,  # the number of generations is larger than the batch size, but
@@ -1405,7 +1499,7 @@ class TestGRPOTrainer(TrlTestCase):
 
         training_args = GRPOConfig(
             output_dir=self.tmp_dir,
-            learning_rate=0.1,  # increase the learning rate to speed up the test
+            learning_rate=0.1,  # use higher lr because gradients are tiny and default lr can stall updates
             per_device_train_batch_size=3,  # reduce the batch size to reduce memory usage
             num_generations=3,  # reduce the number of generations to reduce memory usage
             max_completion_length=8,  # reduce the completion length to reduce memory usage
@@ -1435,7 +1529,7 @@ class TestGRPOTrainer(TrlTestCase):
 
         training_args = GRPOConfig(
             output_dir=self.tmp_dir,
-            learning_rate=0.1,  # increase the learning rate to speed up the test
+            learning_rate=0.1,  # use higher lr because gradients are tiny and default lr can stall updates
             per_device_train_batch_size=3,  # reduce the batch size to reduce memory usage
             num_generations=3,  # reduce the number of generations to reduce memory usage
             max_completion_length=8,  # reduce the completion length to reduce memory usage
@@ -1465,7 +1559,7 @@ class TestGRPOTrainer(TrlTestCase):
 
         training_args = GRPOConfig(
             output_dir=self.tmp_dir,
-            learning_rate=0.1,  # increase the learning rate to speed up the test
+            learning_rate=0.1,  # use higher lr because gradients are tiny and default lr can stall updates
             per_device_train_batch_size=3,  # reduce the batch size to reduce memory usage
             num_generations=3,  # reduce the number of generations to reduce memory usage
             max_completion_length=8,  # reduce the completion length to reduce memory usage
@@ -1520,7 +1614,7 @@ class TestGRPOTrainer(TrlTestCase):
         dataset = load_dataset("trl-internal-testing/zen", "standard_prompt_only", split="train")
         training_args = GRPOConfig(
             output_dir=self.tmp_dir,
-            learning_rate=0.1,  # increase the learning rate to speed up the test
+            learning_rate=0.1,  # use higher lr because gradients are tiny and default lr can stall updates
             max_completion_length=8,  # reduce the completion length to reduce memory usage
             gradient_accumulation_steps=3,  # can be anything in this test
             # steps_per_generation*per_device_train_batch_size=24 is divisible by num_generations=4
@@ -1587,7 +1681,7 @@ class TestGRPOTrainer(TrlTestCase):
 
         training_args = GRPOConfig(
             output_dir=self.tmp_dir,
-            learning_rate=0.1,  # increase the learning rate to speed up the test
+            learning_rate=0.1,  # use higher lr because gradients are tiny and default lr can stall updates
             per_device_train_batch_size=3,  # reduce the batch size to reduce memory usage
             num_generations=3,  # reduce the number of generations to reduce memory usage
             max_completion_length=8,  # reduce the completion length to reduce memory usage
@@ -1639,7 +1733,7 @@ class TestGRPOTrainer(TrlTestCase):
         training_args = GRPOConfig(
             output_dir=self.tmp_dir,
             beta=0.1,  # set beta to non-zero value to test the case where the reference model is used
-            learning_rate=0.1,  # increase the learning rate to speed up the test
+            learning_rate=0.1,  # use higher lr because gradients are tiny and default lr can stall updates
             per_device_train_batch_size=3,  # reduce the batch size to reduce memory usage
             num_generations=3,  # reduce the number of generations to reduce memory usage
             max_completion_length=8,  # reduce the completion length to reduce memory usage
@@ -1687,7 +1781,7 @@ class TestGRPOTrainer(TrlTestCase):
 
         training_args = GRPOConfig(
             output_dir=self.tmp_dir,
-            learning_rate=0.1,  # increase the learning rate to speed up the test
+            learning_rate=0.1,  # use higher lr because gradients are tiny and default lr can stall updates
             per_device_train_batch_size=3,  # reduce the batch size to reduce memory usage
             num_generations=3,  # reduce the number of generations to reduce memory usage
             max_completion_length=8,  # reduce the completion length to reduce memory usage
@@ -1731,7 +1825,7 @@ class TestGRPOTrainer(TrlTestCase):
 
         training_args = GRPOConfig(
             output_dir=self.tmp_dir,
-            learning_rate=0.1,  # increase the learning rate to speed up the test
+            learning_rate=0.1,  # use higher lr because gradients are tiny and default lr can stall updates
             per_device_train_batch_size=3,  # reduce the batch size to reduce memory usage
             num_generations=3,  # reduce the number of generations to reduce memory usage
             max_completion_length=8,  # reduce the completion length to reduce memory usage
@@ -1784,7 +1878,7 @@ class TestGRPOTrainer(TrlTestCase):
 
         training_args = GRPOConfig(
             output_dir=self.tmp_dir,
-            learning_rate=0.1,  # increase the learning rate to speed up the test
+            learning_rate=0.1,  # use higher lr because gradients are tiny and default lr can stall updates
             per_device_train_batch_size=3,  # reduce the batch size to reduce memory usage
             num_generations=3,  # reduce the number of generations to reduce memory usage
             max_completion_length=8,  # reduce the completion length to reduce memory usage
@@ -1833,7 +1927,7 @@ class TestGRPOTrainer(TrlTestCase):
 
         training_args = GRPOConfig(
             output_dir=self.tmp_dir,
-            learning_rate=0.1,
+            learning_rate=0.1,  # use higher lr because gradients are tiny and default lr can stall updates
             per_device_train_batch_size=3,
             num_generations=3,
             max_completion_length=8,
@@ -1874,7 +1968,7 @@ class TestGRPOTrainer(TrlTestCase):
 
         training_args = GRPOConfig(
             output_dir=self.tmp_dir,
-            learning_rate=0.1,  # increase the learning rate to speed up the test
+            learning_rate=0.1,  # use higher lr because gradients are tiny and default lr can stall updates
             per_device_train_batch_size=3,  # reduce the batch size to reduce memory usage
             num_generations=3,  # reduce the number of generations to reduce memory usage
             max_completion_length=8,  # reduce the completion length to reduce memory usage
@@ -1905,7 +1999,7 @@ class TestGRPOTrainer(TrlTestCase):
 
         training_args = GRPOConfig(
             output_dir=self.tmp_dir,
-            learning_rate=0.1,  # increase the learning rate to speed up the test
+            learning_rate=0.1,  # use higher lr because gradients are tiny and default lr can stall updates
             per_device_train_batch_size=3,  # reduce the batch size to reduce memory usage
             num_generations=3,  # reduce the number of generations to reduce memory usage
             max_completion_length=8,  # reduce the completion length to reduce memory usage
@@ -1936,7 +2030,7 @@ class TestGRPOTrainer(TrlTestCase):
 
         training_args = GRPOConfig(
             output_dir=self.tmp_dir,
-            learning_rate=0.1,
+            learning_rate=0.1,  # use higher lr because gradients are tiny and default lr can stall updates
             per_device_train_batch_size=3,
             num_generations=3,
             max_completion_length=8,
@@ -1966,28 +2060,17 @@ class TestGRPOTrainer(TrlTestCase):
         reason="Tool parsing is not supported in transformers versions below 5.0.0",
         strict=True,
     )
-    def test_training_with_tools(self):
+    @pytest.mark.parametrize("tools", [[multiply_tool], [async_multiply_tool]])
+    def test_training_with_tools(self, tools: list[Callable]):
         # In this test, we define a simple tool that multiplies two integers. Regardless of the input prompt,
         # the model will generate 3 completions, 2 of which will be valid tool calls. Among the 2 tool calls, one will
         # succeed and the other will fail (because of a wrong argument name).
-        def multiply(a: int, b: int) -> int:
-            """
-            Multiplies two integers.
-
-            Args:
-                a: The first integer.
-                b: The second integer.
-
-            Returns:
-                The product of the two integers.
-            """
-            return a * b
 
         dataset = load_dataset("trl-internal-testing/zen", "conversational_prompt_only", split="train")
 
         training_args = GRPOConfig(
             output_dir=self.tmp_dir,
-            learning_rate=0.1,
+            learning_rate=0.1,  # use higher lr because gradients are tiny and default lr can stall updates
             per_device_train_batch_size=3,
             num_generations=3,
             max_completion_length=128,
@@ -1998,25 +2081,41 @@ class TestGRPOTrainer(TrlTestCase):
             reward_funcs="trl-internal-testing/tiny-Qwen2ForSequenceClassification-2.5",
             args=training_args,
             train_dataset=dataset,
-            tools=[multiply],
+            tools=tools,
         )
 
         previous_trainable_params = {n: param.clone() for n, param in trainer.model.named_parameters()}
+        tool_name = tools[0].__name__
 
         def fake_generate(input_ids, **kwargs):
             if input_ids.shape[0] == 3:  # first call
                 # fmt: off
-                completion_ids = torch.tensor(
-                    [
-                        # '<tool_call>\n{"name": "multiply", "arguments": {"a": 3, "b": 4}}\n</tool_call><|im_end|>'
-                        [151657, 198, 4913, 606, 788, 330, 64648, 497, 330, 16370, 788, 5212, 64, 788, 220, 18, 11, 330, 65, 788, 220, 19, 11248, 151658, 151645],
-                        # '<tool_call>\n{"name": "multiply", "arguments": {"a": 3, "c": 4}}\n</tool_call><|im_end|>'
-                        [151657, 198, 4913, 606, 788, 330, 64648, 497, 330, 16370, 788, 5212, 64, 788, 220, 18, 11, 330, 66, 788, 220, 19, 11248, 151658, 151645],
-                        # "I don't know any tool<|im_end|>"
-                        [40, 1513, 944, 1414, 894, 5392, 151645, 151643, 151643, 151643, 151643, 151643, 151643, 151643, 151643, 151643, 151643, 151643, 151643, 151643, 151643, 151643, 151643, 151643, 151643],
-                    ],
-                    device=input_ids.device,
-                )
+                if tool_name == "multiply_tool":
+                    completion_ids = torch.tensor(
+                        [
+                            # '<tool_call>\n{"name": "multiply_tool", "arguments": {"a": 3, "b": 4}}\n</tool_call><|im_end|>'
+                            [151657, 198, 4913, 606, 788, 330, 64648, 22785, 497, 330, 16370, 788, 5212, 64, 788, 220, 18, 11, 330, 65, 788, 220, 19, 11248, 151658, 151645],
+                            # an invalid tool call with wrong argument name
+                            # '<tool_call>\n{"name": "multiply_tool", "arguments": {"a": 3, "c": 4}}\n</tool_call><|im_end|>'
+                            [151657, 198, 4913, 606, 788, 330, 64648, 22785, 497, 330, 16370, 788, 5212, 64, 788, 220, 18, 11, 330, 66, 788, 220, 19, 11248, 151658, 151645],
+                            # "I don't know any tool<|im_end|>"
+                            [40, 1513, 944, 1414, 894, 5392, 151645, 151643, 151643, 151643, 151643, 151643, 151643, 151643, 151643, 151643, 151643, 151643, 151643, 151643, 151643, 151643, 151643, 151643, 151643, 151643],
+                        ],
+                        device=input_ids.device,
+                    )
+                elif tool_name == "async_multiply_tool":
+                    completion_ids = torch.tensor(
+                        [
+                            # '<tool_call>\n{"name": "async_multiply_tool", "arguments": {"a": 3, "b": 4}}\n</tool_call><|im_end|>'
+                            [151657, 198, 4913, 606, 788, 330, 7692, 93054, 22785, 497, 330, 16370, 788, 5212, 64, 788, 220, 18, 11, 330, 65, 788, 220, 19, 11248, 151658, 151645],
+                            # an invalid tool call with wrong argument name
+                            # '<tool_call>\n{"name": "async_multiply_tool", "arguments": {"a": 3, "c": 4}}\n</tool_call><|im_end|>'
+                            [151657, 198, 4913, 606, 788, 330, 7692, 93054, 22785, 497, 330, 16370, 788, 5212, 64, 788, 220, 18, 11, 330, 66, 788, 220, 19, 11248, 151658, 151645],
+                            # "I don't know any tool<|im_end|>"
+                            [40, 1513, 944, 1414, 894, 5392, 151645, 151643, 151643, 151643, 151643, 151643, 151643, 151643, 151643, 151643, 151643, 151643, 151643, 151643, 151643, 151643, 151643, 151643, 151643, 151643, 151643],
+                        ],
+                        device=input_ids.device,
+                    )
                 # fmt: on
             else:  # second call will only have two inputs in the batch, because two examples have a tool call.
                 completion_ids = torch.tensor(
@@ -2264,10 +2363,10 @@ class TestGRPOTrainerSlow(TrlTestCase):
     def test_training_with_transformers_paged(self, model_name):
         """Test that training works with transformers paged implementation (requires GPU)."""
         if Version(transformers.__version__) < Version("4.57.0"):
-            pytest.xfail("Upstream bug in transformers (GH#40692). Fix merged; awaiting release >= 4.57.0")
+            pytest.xfail("Bug in transformers solved in GH#40692, released in 4.57.0.")
         training_args = GRPOConfig(
             output_dir=self.tmp_dir,
-            learning_rate=0.1,  # increase the learning rate to speed up the test
+            learning_rate=0.1,  # use higher lr because gradients are tiny and default lr can stall updates
             per_device_train_batch_size=3,  # reduce the batch size to reduce memory usage
             num_generations=3,  # reduce the number of generations to reduce memory usage
             max_completion_length=8,  # reduce the completion length to reduce memory usage
@@ -2370,7 +2469,7 @@ class TestGRPOTrainerSlow(TrlTestCase):
 
         training_args = GRPOConfig(
             output_dir=self.tmp_dir,
-            learning_rate=0.1,
+            learning_rate=0.1,  # use higher lr because gradients are tiny and default lr can stall updates
             per_device_train_batch_size=1,  # Minimal batch size
             gradient_accumulation_steps=2,  # Maintain effective batch size
             num_generations=2,
@@ -2590,7 +2689,7 @@ class TestGRPOTrainerSlow(TrlTestCase):
 
         training_args = GRPOConfig(
             output_dir=self.tmp_dir,
-            learning_rate=0.1,  # increase the learning rate to speed up the test
+            learning_rate=0.1,  # use higher lr because gradients are tiny and default lr can stall updates
             per_device_train_batch_size=3,  # reduce the batch size to reduce memory usage
             num_generations=3,  # reduce the number of generations to reduce memory usage
             max_completion_length=8,  # reduce the completion length to reduce memory usage
